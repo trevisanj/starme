@@ -10,6 +10,7 @@ import numpy as np
 import os
 import csv
 import argparse
+from starmelib import *
 
 
 AA = 1
@@ -79,8 +80,6 @@ class Session:
 
 def main(args):
     import matplotlib.pyplot as plt
-    # gg = glob.glob(os.path.join(DATADIR, "*"))
-    # filename = gg[0]
     filename = args.input
     img = Image.open(filename, "r")
     if False:
@@ -146,7 +145,7 @@ def main(args):
 
         plt.show()
     print(f"Found {len(ostia)} objects")
-    savedir = "."
+    savedir = args.datadir
     dirname = a107.new_filename(os.path.join(savedir, "sky"), flag_minimal=False)
     os.mkdir(dirname)
     for i, p in enumerate(ostia):
@@ -170,8 +169,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=a107.SmartFormatter)
+    parser.add_argument("-d", "--datadir", default=STARMEDATADIR,
+                        help="Data directory, the place where image banks will be saved")
     parser.add_argument("input", type=str, help="Filename to extract the stars from")
-
 
     args = parser.parse_args()
 

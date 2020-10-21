@@ -9,6 +9,15 @@ import numpy as np
 import copy
 import a107
 import argparse
+from starmelib import *
+import tabulate
+from IPython import embed
+
+
+__all__ = ["STARMEDATADIR", "Session", "list_banks_"]
+
+
+STARMEDATADIR = "/home/j/.starme"
 
 
 class Point:
@@ -36,15 +45,37 @@ class Point:
 
 
 class Session(a107.ConsoleCommands):
-    def __init__(self, data_dir, inputfilename):
+    def __init__(self, args):
         super().__init__()
 
+        self.datadir = args.datadir
+        self.bankname = ""
+
+        # REFERENCE IMAGE
+        self.img = self.aimg = self.w = self.h = self.spawn_count = self.ind = None
+
         # BANK
-        gg = glob.glob(os.path.join(data_dir, "*.png"))
+        self.bank = []
+        self.masses = []
+        self.weights = []
+        self.ladder = None
+        self.nb = None
+        self._load_bank(args.bankname)
+
+        if args.input:
+            self._load(args.input)
+
+    def _load_bank(self, bankname):
+        if self.img:
+            if not a107.yesno("Loading another bank will reset the project. Continue", 0):
+                return
 
         self.bank = []
         self.masses = []
         self.weights = []
+
+        fulldatadir = os.path.join(self.datadir, bankname)
+        gg = glob.glob(os.path.join(fulldatadir, "*.png"))
         for g in gg:
             img = Image.open(g, 'r')
 
@@ -55,28 +86,18 @@ class Session(a107.ConsoleCommands):
                 img = Image.merge("RGBA", G)
 
             self.bank.append(img)
-            mass = np.sum(np.asarray(img)[:,:,:3])
+            mass = np.sum(np.asarray(img)[:, :, :3])
             self.masses.append(mass)
             self.weights.append(1/mass)
         self.ladder = np.cumsum(self.weights)
-
         self.nb = len(self.bank)
-
-        # REFERENCE IMAGE
-        self.img = Image.open(inputfilename, 'r')
-        self.aimg = np.asarray(self.img)
-        self.w, self.h = self.img.size
-
-        self.spawn_count = 0
-
-        self.ind = self._get_individual()
-
+        self.bankname = bankname
+        print(f"Loaded {self.nb} image{'s' if self.nb != 1 else ''} from '{fulldatadir}")
 
     def random_index(self):
         x = random.random()*self.ladder[-1]
         index = a107.BSearchCeil(self.ladder, x)
         return index
-
 
     def spawn(self, amount=1):
         """Spawns stars, but only if it is better with them than without them."""
@@ -113,12 +134,30 @@ class Session(a107.ConsoleCommands):
                     self.ind[i] = q
 
     def show(self, flag_imgref=False):
+        """Builds the resulting image and shows it."""
         flag_imgref = a107.to_bool(flag_imgref)
         img = self._make_image(flag_imgref)
         img.show()
 
     def show_img(self):
+        """Shows the reference image."""
         self.img.show()
+
+    def draw_bank(self, ratio=1.3, flag_save=False, backgroundcolor=(0, 0, 0, 255)):
+        """
+        Builds a grid-like image containing all the bank images with each cell in the grid containing a "star".
+
+        Args:
+            ratio: ratio between columns and rows in image
+            flag_save: whether or not to save image to disk
+
+        """
+        img = self._make_draw_bank(ratio, backgroundcolor)
+        if flag_save:
+            filename = a107.new_filename(f"grid-{self.bankname}", "png")
+            img.save(filename)
+            print(f"Saved file '{filename}'")
+        img.show()
 
     def save(self, flag_imgref=False):
         flag_imgref = a107.to_bool(flag_imgref)
@@ -127,14 +166,26 @@ class Session(a107.ConsoleCommands):
         img.save(filename)
         return filename
 
-    def _make_image(self, flag_imgref):
-        background = self.img.copy() if flag_imgref else Image.new("RGBA", (self.w, self.h), (0, 0, 0, 255))
+    def list_banks(self):
+        list_banks_(self.datadir)
 
-        for p in self.ind:
-            if p.on:
-                background.paste(p.img, (p.x0, p.y0), p.img.split()[-1])
+    def load_bank(self, bankname):
+        self._load_bank(bankname)
 
-        return background
+    def load(self, inputfilename):
+        """Loads image"""
+        self._load(inputfilename)
+
+    def _load(self, inputfilename):
+        if self.img:
+            if not a107.yesno("Loading another image will reset the project. Continue", 0):
+                return
+
+        self.img = Image.open(inputfilename, 'r')
+        self.aimg = np.asarray(self.img)
+        self.w, self.h = self.img.size
+        self.spawn_count = 0
+        self.ind = self._get_individual()
 
     def _get_individual(self):
         return []
@@ -227,16 +278,62 @@ class Session(a107.ConsoleCommands):
         # if random.random() < 0.1:
         #     p.on = not p.on
 
+    def _make_image(self, flag_imgref):
+        background = self.img.copy() if flag_imgref else Image.new("RGBA", (self.w, self.h), (0, 0, 0, 255))
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=a107.SmartFormatter)
-    parser.add_argument("-d", "--datadir", default="/var/leaves/extract/sky-0012",
-        help="Data directory, the place containing the image bank and where to save the commands history")
-    parser.add_argument("input", type=str, help="Input filename")
+        for p in self.ind:
+            if p.on:
+                background.paste(p.img, (p.x0, p.y0), p.img.split()[-1])
+
+        return background
+
+    def _make_draw_bank(self, ratio, backgroundcolor):
+        # calculates size of cell in grid
+        maxw, maxh = 0, 0
+        for star in self.bank:
+            w, h = star.size
+            maxw = max(w, maxw)
+            maxh = max(h, maxh)
+        dim = max(maxw, maxh)
+
+        # calculates number of cells
+        n = self.nb
+        nr = int(np.floor(np.sqrt(n/ratio)))
+        nc = int(np.ceil(n/nr))
+
+        MARGIN = 3  # outer box
+        SPACING = 2  # spacing between stars in grid
+
+        width = nc*dim+2*MARGIN+(nc-1)*SPACING
+        height = nr*dim+2*MARGIN+(nr-1)*SPACING
+
+        img = Image.new("RGBA", (width, height), backgroundcolor)
+
+        x = y = MARGIN
+        i = 0
+        for star in self.bank:
+            w, h = star.size
+            x0 = int(x+(dim-w)/2)
+            y0 = int(y+(dim-h)/2)
+            img.paste(star, (x0, y0), star.split()[-1])
+
+            x += SPACING+dim
+            i += 1
+            if i == nc:
+                y += SPACING+dim
+                x = MARGIN
+                i = 0
+
+        return img
 
 
-    args = parser.parse_args()
-
-    S = Session(args.datadir, args.input)
-    k = a107.Console("starme", S, args.datadir)
-    k.run()
+def list_banks_(datadir):
+    """Lists all image banks in data directory."""
+    dd = glob.glob(os.path.join(datadir, "*"))
+    rows = []
+    header = ["Bank name", "Directory", "Number of PNG files"]
+    for d in dd:
+        if os.path.isdir(d):
+            n = len(glob.glob(os.path.join(d, "*.png")))
+            rows.append([os.path.split(d)[1], d, n])
+    print(tabulate.tabulate(rows, header))

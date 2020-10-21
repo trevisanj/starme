@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 from glob import glob
 
 setup(
-    name = 'starme',
+    name = 'starmelib',
     packages = find_packages(),
     include_package_data=True,
     version = '20.07.23.0',
@@ -15,5 +15,5 @@ setup(
     keywords= [],
     install_requires = ['a107'],
     python_requires = '>=3',
-    scripts = glob('starme/scripts/*.py')
+    scripts = glob('starmelib/scripts/*.py')
 )
